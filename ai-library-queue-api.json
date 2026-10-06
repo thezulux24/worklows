@@ -1,0 +1,715 @@
+{
+    "name": "AI Library - Queue API",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "queue-next",
+                "authentication": "headerAuth",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "08f60c7f-80a8-4bcd-9835-0d58e86d78a6",
+            "name": "Queue Next Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [
+                0,
+                96
+            ],
+            "webhookId": "59c3add1-6ffb-41a3-a267-17776f8d3119",
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "kVXgkT3qk6N67eSW",
+                    "name": "ai-library-queue-token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv",
+                    "cachedResultName": "ai_library_queue"
+                },
+                "matchType": "allConditions",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "estado",
+                            "keyValue": "processing"
+                        },
+                        {
+                            "keyName": "updated_at",
+                            "condition": "lt",
+                            "keyValue": "={{ $now.toUTC().minus({ hours: 1 }).toISO() }}"
+                        }
+                    ]
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "estado": "pending"
+                    },
+                    "schema": [
+                        {
+                            "id": "estado",
+                            "displayName": "estado",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "79816989-44ee-472e-bd70-4015c86d302c",
+            "name": "Revive Stale Processing Rows",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                224,
+                96
+            ],
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv",
+                    "cachedResultName": "ai_library_queue"
+                },
+                "matchType": "allConditions",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "estado",
+                            "keyValue": "pending"
+                        }
+                    ]
+                },
+                "limit": 1,
+                "orderBy": true,
+                "orderByColumn": "ts",
+                "orderByDirection": "ASC"
+            },
+            "id": "b9047d27-6916-4cd8-a227-bc5b202af832",
+            "name": "Find Oldest Pending",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                448,
+                96
+            ],
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.id ? \"yes\" : \"no\" }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "yes"
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "c460b36c-62a1-4944-8c92-e36f70465113",
+            "name": "Has Pending Row?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                672,
+                96
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv",
+                    "cachedResultName": "ai_library_queue"
+                },
+                "matchType": "allConditions",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyValue": "={{ $json.id }}"
+                        }
+                    ]
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "estado": "processing",
+                        "intento": "={{ ($json.intento || 0) + 1 }}",
+                        "updated_at": "={{ $now.toUTC().toISO() }}"
+                    },
+                    "schema": [
+                        {
+                            "id": "estado",
+                            "displayName": "estado",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "intento",
+                            "displayName": "intento",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "updated_at",
+                            "displayName": "updated_at",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "94d8a09a-ac6f-426b-af89-6a00ec84b459",
+            "name": "Mark Row Processing",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                896,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const row = $('Find Oldest Pending').first().json;\nlet links = [];\ntry {\n  const parsed = JSON.parse(row.links || '[]');\n  if (Array.isArray(parsed)) links = parsed;\n} catch (e) {\n  links = [];\n}\nreturn [{\n  json: {\n    item: {\n      id: String(row.id),\n      autor: row.autor,\n      texto: row.texto,\n      links: links,\n      ts: row.ts,\n      estado: 'processing',\n      error: row.error,\n      intento: (row.intento || 0) + 1\n    }\n  }\n}];"
+            },
+            "id": "f5a872de-94d1-4ba8-aa70-fe936db5e17e",
+            "name": "Build Queue Next Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1120,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ $json }}",
+                "options": {}
+            },
+            "id": "130256c8-1779-46f2-8262-9a321d6cca34",
+            "name": "Respond With Item",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                1344,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": {
+                    "item": null
+                },
+                "options": {}
+            },
+            "id": "21e69ef9-04d3-47d8-9c00-cd38c91eac97",
+            "name": "Respond No Item",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                896,
+                192
+            ]
+        },
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "queue-update",
+                "authentication": "headerAuth",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "f3fe49b5-1d7a-4b6f-baf0-911798cdab96",
+            "name": "Queue Update Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [
+                0,
+                608
+            ],
+            "webhookId": "a7b5da42-0183-4ade-ab12-8b314c1a6428",
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "kVXgkT3qk6N67eSW",
+                    "name": "ai-library-queue-token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "norm-id",
+                            "name": "id",
+                            "value": "={{ $json.body?.id ?? $json.id ?? \"\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "norm-estado",
+                            "name": "estado",
+                            "value": "={{ $json.body?.estado ?? $json.estado ?? \"\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "norm-error",
+                            "name": "errorMsg",
+                            "value": "={{ $json.body?.error ?? $json.error ?? \"\" }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "813ac22a-b825-4b14-b362-42de1d62e05b",
+            "name": "Normalize Update Payload",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.5,
+            "position": [
+                224,
+                608
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.estado }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "pending"
+                        },
+                        {
+                            "leftValue": "={{ $json.estado }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "processing"
+                        },
+                        {
+                            "leftValue": "={{ $json.estado }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "done"
+                        },
+                        {
+                            "leftValue": "={{ $json.estado }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "failed"
+                        }
+                    ],
+                    "combinator": "or"
+                },
+                "options": {}
+            },
+            "id": "556988d3-9a25-480b-b80d-1e7925ab5900",
+            "name": "Estado Valido?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                448,
+                608
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv",
+                    "cachedResultName": "ai_library_queue"
+                },
+                "matchType": "allConditions",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyValue": "={{ Number($(\"Normalize Update Payload\").item.json.id) }}"
+                        }
+                    ]
+                },
+                "limit": 1
+            },
+            "id": "cc02e0b8-c825-42b1-915f-9c492ccf9906",
+            "name": "Check Row Exists",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                672,
+                512
+            ],
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.id ? \"yes\" : \"no\" }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "yes"
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "8695e4eb-cc27-411f-92df-123f58e5f2de",
+            "name": "Row Exists?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                896,
+                512
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv",
+                    "cachedResultName": "ai_library_queue"
+                },
+                "matchType": "allConditions",
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyValue": "={{ Number($(\"Normalize Update Payload\").item.json.id) }}"
+                        }
+                    ]
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "estado": "={{ $(\"Normalize Update Payload\").item.json.estado }}",
+                        "error": "={{ $(\"Normalize Update Payload\").item.json.errorMsg }}",
+                        "updated_at": "={{ $now.toUTC().toISO() }}"
+                    },
+                    "schema": [
+                        {
+                            "id": "estado",
+                            "displayName": "estado",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "error",
+                            "displayName": "error",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "updated_at",
+                            "displayName": "updated_at",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "3df26b47-3e3f-4606-a883-c2d0f9775fbf",
+            "name": "Apply Estado Update",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                1120,
+                416
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": {
+                    "ok": true
+                },
+                "options": {}
+            },
+            "id": "1ce92b3e-bfd1-4f5f-a210-8758f448735b",
+            "name": "Respond OK",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                1344,
+                416
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": {
+                    "ok": false,
+                    "error": "not found"
+                },
+                "options": {
+                    "responseCode": 404
+                }
+            },
+            "id": "4d96b168-9414-49da-8f59-6d78b8bf9803",
+            "name": "Respond Not Found",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                1120,
+                608
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": {
+                    "ok": false,
+                    "error": "estado inválido"
+                },
+                "options": {
+                    "responseCode": 400
+                }
+            },
+            "id": "eb879b27-e16e-4525-8a96-715a1d54e68a",
+            "name": "Respond Invalid Estado",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                672,
+                704
+            ]
+        }
+    ],
+    "connections": {
+        "Queue Next Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Revive Stale Processing Rows",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Revive Stale Processing Rows": {
+            "main": [
+                [
+                    {
+                        "node": "Find Oldest Pending",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Oldest Pending": {
+            "main": [
+                [
+                    {
+                        "node": "Has Pending Row?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Pending Row?": {
+            "main": [
+                [
+                    {
+                        "node": "Mark Row Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Respond No Item",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Mark Row Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Build Queue Next Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Queue Next Response": {
+            "main": [
+                [
+                    {
+                        "node": "Respond With Item",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Queue Update Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Normalize Update Payload",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Normalize Update Payload": {
+            "main": [
+                [
+                    {
+                        "node": "Estado Valido?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Estado Valido?": {
+            "main": [
+                [
+                    {
+                        "node": "Check Row Exists",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Respond Invalid Estado",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Row Exists": {
+            "main": [
+                [
+                    {
+                        "node": "Row Exists?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Row Exists?": {
+            "main": [
+                [
+                    {
+                        "node": "Apply Estado Update",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Respond Not Found",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Apply Estado Update": {
+            "main": [
+                [
+                    {
+                        "node": "Respond OK",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "aiBuilderAssisted": true,
+        "builderVariant": "mcp",
+        "instanceId": "5cea1ede4b61531b540ce8505b7872e7b96f60c12ca0442cc9217aae6d18d4b2"
+    }
+}

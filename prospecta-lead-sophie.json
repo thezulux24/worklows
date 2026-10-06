@@ -1,0 +1,365 @@
+{
+    "name": "Prospecta - Lead Sophie",
+    "nodes": [
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "lead-id",
+                            "name": "lead_id",
+                            "value": "={{ $json.body?.lead_id ?? \"\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "tenant-id",
+                            "name": "tenant_id",
+                            "value": "={{ $json.body?.tenant_id ?? \"\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "email",
+                            "name": "email",
+                            "value": "={{ String($json.body?.email ?? \"\").trim().toLowerCase() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "telefono",
+                            "name": "telefono",
+                            "value": "={{ String($json.body?.telefono ?? \"\").trim() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "idioma",
+                            "name": "idioma",
+                            "value": "={{ $json.body?.idioma === \"en\" ? \"en\" : \"es\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "producto",
+                            "name": "producto",
+                            "value": "={{ $json.body?.producto ?? \"\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "nota",
+                            "name": "nota",
+                            "value": "={{ String($json.body?.nota ?? \"\").slice(0, 500) }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "origen",
+                            "name": "origen",
+                            "value": "={{ $json.body?.origen ?? \"sophie-chat\" }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "is-test",
+                            "name": "is_test",
+                            "value": "={{ $json.body?.es_prueba === true || /^qa\\+[^@]*@latinovation\\.com$/i.test(String($json.body?.email ?? \"\").trim()) || /@example\\.(com|org|net)$/i.test(String($json.body?.email ?? \"\").trim()) || String($json.body?.nombre ?? \"\").trim().toUpperCase().startsWith(\"[PRUEBA]\") }}",
+                            "type": "boolean"
+                        },
+                        {
+                            "id": "first-name",
+                            "name": "firstname",
+                            "value": "={{ (() => { const n = String($json.body?.nombre ?? \"\").replace(/^\\s*\\[PRUEBA\\]\\s*/i, \"\").trim(); const t = $json.body?.es_prueba === true || /^qa\\+[^@]*@latinovation\\.com$/i.test(String($json.body?.email ?? \"\").trim()) || /@example\\.(com|org|net)$/i.test(String($json.body?.email ?? \"\").trim()) || String($json.body?.nombre ?? \"\").trim().toUpperCase().startsWith(\"[PRUEBA]\"); const f = n.split(/\\s+/)[0] || \"Sophie lead\"; return t ? \"[PRUEBA] \" + f : f; })() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "last-name",
+                            "name": "lastname",
+                            "value": "={{ String($json.body?.nombre ?? \"\").replace(/^\\s*\\[PRUEBA\\]\\s*/i, \"\").trim().split(/\\s+/).slice(1).join(\" \") }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "showroom",
+                            "name": "showroom",
+                            "value": "={{ String($json.body?.showroom ?? \"\").trim() }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "fe5e5133-c1ec-47e0-97a0-d084dee7e4e5",
+            "name": "Normalizar lead",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                480,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.email }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            },
+                            "rightValue": ""
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "0567fd07-c774-42cd-8a28-2357612c50ef",
+            "name": "¿Tiene email?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                720,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "authentication": "appToken",
+                "email": "={{ $json.email }}",
+                "additionalFields": {
+                    "customPropertiesUi": {
+                        "customPropertiesValues": [
+                            {
+                                "property": "prospecta_lead_id",
+                                "value": "={{ $json.lead_id }}"
+                            },
+                            {
+                                "property": "prospecta_source",
+                                "value": "={{ $json.origen }}"
+                            },
+                            {
+                                "property": "prospecta_is_test",
+                                "value": "={{ $json.is_test ? \"true\" : \"false\" }}"
+                            },
+                            {
+                                "property": "prospecta_product_interest",
+                                "value": "={{ $json.producto }}"
+                            },
+                            {
+                                "property": "prospecta_showroom",
+                                "value": "={{ $json.showroom }}"
+                            }
+                        ]
+                    },
+                    "firstName": "={{ $json.firstname }}",
+                    "lastName": "={{ $json.lastname }}",
+                    "message": "={{ $json.nota }}",
+                    "phoneNumber": "={{ $json.telefono }}",
+                    "prefferedLanguage": "={{ $json.idioma }}"
+                },
+                "options": {}
+            },
+            "id": "6796ca6e-c309-47ad-bbeb-7527b56e7bc4",
+            "name": "HubSpot: upsert por email",
+            "type": "n8n-nodes-base.hubspot",
+            "typeVersion": 2.2,
+            "position": [
+                992,
+                208
+            ],
+            "credentials": {
+                "hubspotAppToken": {
+                    "id": "prspHubspotMsd01",
+                    "name": "Prospecta · HubSpot MSD (Sophie)"
+                }
+            },
+            "onError": "continueErrorOutput"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.hubapi.com/crm/v3/objects/contacts",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "hubspotAppToken",
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ properties: { firstname: $json.firstname, lastname: $json.lastname, phone: $json.telefono, hs_language: $json.idioma, message: $json.nota, prospecta_lead_id: $json.lead_id, prospecta_source: $json.origen, prospecta_is_test: $json.is_test ? \"true\" : \"false\", prospecta_product_interest: $json.producto, prospecta_showroom: $json.showroom } }) }}",
+                "options": {}
+            },
+            "id": "cfc249f0-ccbe-4931-a3b2-d10dcc5a064a",
+            "name": "HubSpot: crear contacto sin email",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.3,
+            "position": [
+                992,
+                432
+            ],
+            "credentials": {
+                "hubspotAppToken": {
+                    "id": "prspHubspotMsd01",
+                    "name": "Prospecta · HubSpot MSD (Sophie)"
+                }
+            },
+            "onError": "continueErrorOutput"
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ JSON.stringify({ ok: true, contact_id: String($json.vid ?? $json.id ?? \"\"), lead_id: $(\"Normalizar lead\").item.json.lead_id, is_test: $(\"Normalizar lead\").item.json.is_test }) }}",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "eb177743-2e3e-49fd-8bde-15cb6c323eb0",
+            "name": "Responder 200",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                1264,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ JSON.stringify({ ok: false, error: \"hubspot_failed\", lead_id: $(\"Normalizar lead\").item.json.lead_id }) }}",
+                "options": {
+                    "responseCode": 502
+                }
+            },
+            "id": "c1c8fd50-ac6a-4ace-8317-e986f8a2b37e",
+            "name": "Responder 502",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                1264,
+                528
+            ]
+        },
+        {
+            "parameters": {
+                "content": "## Prospecta → HubSpot (lead de Sophie)\nContrato: docs/integraciones/n8n-hubspot-lead.md del repo Prospecta.\n\n- Auth: header `x-prospecta-secret` (credencial Header Auth). Secreto errado → n8n responde 403 y no crea nada.\n- `is_test` = `es_prueba:true` en el body, o email `qa+…@latinovation.com`, o email `@example.com/.org/.net`, o nombre que empieza por `[PRUEBA]`. Los de prueba llevan `[PRUEBA]` en el nombre.\n- Con email: upsert (dedupe por email). Sin email: crea contacto por API v3.\n- Requiere en HubSpot las propiedades de contacto: prospecta_lead_id, prospecta_source, prospecta_is_test (checkbox), prospecta_product_interest. Sin ellas HubSpot rechaza → 502 y la app marca error_push.\n- 2xx = la app marca el lead como enviado.",
+                "height": 520,
+                "width": 1320,
+                "color": 4
+            },
+            "id": "e7fd8d0c-7a28-4d5d-a480-4ebe2f97c42a",
+            "name": "Sticky Note 8dadca52",
+            "type": "n8n-nodes-base.stickyNote",
+            "typeVersion": 1,
+            "position": [
+                208,
+                176
+            ]
+        },
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "prospecta-lead",
+                "authentication": "headerAuth",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "57d40a70-3b76-4845-9c7c-1a7d29d23d34",
+            "name": "Lead de Sophie",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [
+                240,
+                304
+            ],
+            "webhookId": "1021afdd-0558-4c39-b67a-06c773a31830",
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "prspLeadSecret01",
+                    "name": "Prospecta x-prospecta-secret"
+                }
+            },
+            "notes": "DESACTIVADO A PROPÓSITO. Antes de publicar: Authentication = Header Auth con una credencial NUEVA 'Prospecta x-prospecta-secret' (Name: x-prospecta-secret, Value: = LEAD_WEBHOOK_SECRET). n8n auto-asigna 'ai-library-queue-token' (de AI Library): NO usarla."
+        }
+    ],
+    "connections": {
+        "Normalizar lead": {
+            "main": [
+                [
+                    {
+                        "node": "¿Tiene email?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "¿Tiene email?": {
+            "main": [
+                [
+                    {
+                        "node": "HubSpot: upsert por email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "HubSpot: crear contacto sin email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "HubSpot: upsert por email": {
+            "main": [
+                [
+                    {
+                        "node": "Responder 200",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Responder 502",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "HubSpot: crear contacto sin email": {
+            "main": [
+                [
+                    {
+                        "node": "Responder 200",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Responder 502",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Lead de Sophie": {
+            "main": [
+                [
+                    {
+                        "node": "Normalizar lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "aiBuilderAssisted": true,
+        "builderVariant": "mcp",
+        "instanceId": "5cea1ede4b61531b540ce8505b7872e7b96f60c12ca0442cc9217aae6d18d4b2"
+    }
+}

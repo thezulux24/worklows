@@ -1,0 +1,170 @@
+{
+    "name": "MSD - Deal Event",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "deal-event",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "f1000000-0000-0000-0000-000000000001",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                240,
+                304
+            ],
+            "webhookId": "msd-deal-event"
+        },
+        {
+            "parameters": {
+                "jsCode": "// MSD Deal Event — Validate + Normalize + Hash\nconst crypto = require('crypto');\n\nconst expectedSecret = '1a8847cc503b42b7cd27d6dbfab74f60b10abfa1b3e78f6ba414b9e4e76df3a8';\n\nconst raw = $input.first().json;\nconst body = raw.body || raw;\nconst headers = (raw.headers || {});\n\n// Accept secret en body._secret O en header x-msd-deal-secret (HubSpot Workflows pueden mandar header)\nconst providedSecret = body._secret || headers['x-msd-deal-secret'] || headers['X-MSD-Deal-Secret'];\nif (providedSecret !== expectedSecret) {\n  throw new Error('Invalid secret');\n}\n\nconst event = (body.event || '').toLowerCase();\nif (!['deal_created', 'deal_won', 'deal_lost'].includes(event)) {\n  throw new Error('Unknown event: ' + event);\n}\nconst hs_deal_event = event.replace('deal_', ''); // 'created' | 'won' | 'lost'\n\nconst hs_deal_id = String(body.hs_deal_id || '').trim();\nif (!hs_deal_id) throw new Error('Missing hs_deal_id');\n\nconst contact = body.primary_contact || {};\nconst normalizeEmail = (e) => (e || '').toLowerCase().trim();\nconst normalizePhone = (p) => (p || '').replace(/[^0-9+]/g, '');\nconst sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');\n\nconst email = normalizeEmail(contact.email);\nconst phone = normalizePhone(contact.phone);\nconst email_hash = email ? sha256(email) : null;\nconst phone_hash = phone ? sha256(phone) : null;\n\nconst amount = body.amount != null ? Number(body.amount) : null;\nconst hs_location = (body.msd_location || (body.primary_contact && body.primary_contact.location) || '').toLowerCase().trim();\n\nreturn [{\n  json: {\n    hs_deal_id,\n    hs_deal_event,\n    hs_pipeline: body.pipeline || null,\n    hs_dealstage: body.dealstage || null,\n    hs_lead_source: body.lead_source || null,\n    email_hash,\n    phone_hash,\n    amount,\n    hs_location,\n    closedate: body.closedate || null,\n    createdate: body.createdate || null,\n    raw_payload: body\n  }\n}];"
+            },
+            "id": "f1000000-0000-0000-0000-000000000002",
+            "name": "Validate + Normalize",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                464,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "WITH match AS (\n  SELECT id AS lead_id, gclid, gbraid, wbraid, fbclid, msclkid, created_at,\n         EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 AS age_hours\n  FROM lead_attribution\n  WHERE created_at >= NOW() - INTERVAL '90 days'\n    AND (\n      ($1::text IS NOT NULL AND email_hash = $1)\n      OR ($2::text IS NOT NULL AND phone_hash = $2)\n    )\n  ORDER BY \n    CASE WHEN email_hash = $1 THEN 0 ELSE 1 END,\n    created_at DESC\n  LIMIT 1\n),\nloc AS (\n  SELECT id AS location_id, slug, name, google_ads_customer_id,\n         conv_action_id_deal_created, conv_action_id_deal_won,\n         hubspot_location_internal_name\n  FROM msd_locations\n  WHERE COALESCE(conv_upload_enabled, true) = true\n    AND $3::text != ''\n    AND (\n      LOWER(slug) = $3\n      OR LOWER(COALESCE(hubspot_location_internal_name, '')) = $3\n      OR LOWER(slug) LIKE $3 || '%'\n      OR LOWER(slug) LIKE '%' || $3 || '%'\n      OR POSITION($3 IN LOWER(name)) > 0\n    )\n  ORDER BY\n    CASE\n      WHEN LOWER(slug) = $3 THEN 0\n      WHEN LOWER(COALESCE(hubspot_location_internal_name,'')) = $3 THEN 1\n      WHEN LOWER(slug) LIKE $3 || '%' THEN 2\n      ELSE 3\n    END\n  LIMIT 1\n)\nSELECT \n  m.lead_id, m.gclid, m.gbraid, m.wbraid, m.fbclid, m.msclkid, m.age_hours,\n  l.location_id, l.slug AS location_slug, l.name AS location_name, l.google_ads_customer_id,\n  l.conv_action_id_deal_created, l.conv_action_id_deal_won\nFROM (SELECT 1) z\nLEFT JOIN match m ON true\nLEFT JOIN loc l ON true;",
+                "options": {
+                    "queryReplacement": "={{ [$json.email_hash, $json.phone_hash, $json.hs_location] }}"
+                }
+            },
+            "id": "f1000000-0000-0000-0000-000000000003",
+            "name": "Lookup attribution + location",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                688,
+                304
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "QmJNeoZtiE1QSSfp",
+                    "name": "Supabase MSD (Transaction Pooler)"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// MSD Deal Event — Build conversion_upload_log row (Opcion E: Enhanced Conversions for Leads por email)\nconst items = $input.all();\nconst input = items[0].json;\nconst prev = $('Validate + Normalize').first().json;\n\nconst lead_id = input.lead_id || null;\nconst location_id = input.location_id || null;\nconst customer_id = input.google_ads_customer_id || null;\n\n// Identificadores del DEAL mismo (server-side, no requiere captura client-side ni tocar el form)\nconst email_hash = prev.email_hash || null;\nconst phone_hash = prev.phone_hash || null;\nconst hasIdent = !!(email_hash || phone_hash);\n\n// Pick conv_action_id according to event\nconst event = prev.hs_deal_event; // 'created' | 'won' | 'lost'\nlet conv_action_id = null;\nlet conv_action_name = null;\nif (event === 'created') {\n  conv_action_id = input.conv_action_id_deal_created || null;\n  conv_action_name = 'HS Deal Created';\n} else if (event === 'won') {\n  conv_action_id = input.conv_action_id_deal_won || null;\n  conv_action_name = 'HS Deal Won';\n}\n\n// match_method\nlet match_method = 'no_match';\nif (!location_id) {\n  match_method = 'no_location';\n} else if (lead_id && input.gclid) {\n  match_method = 'gclid+enhanced';\n} else if (lead_id && input.gbraid) {\n  match_method = 'gbraid';\n} else if (lead_id && input.wbraid) {\n  match_method = 'wbraid';\n} else if (hasIdent) {\n  match_method = 'enhanced_only'; // Opcion E: email del deal\n}\n\n// upload_status — encola si hay location + conv_action + algun identificador\nlet upload_status;\nif (!location_id || !conv_action_id) {\n  upload_status = 'dropped_no_location';\n} else if (event === 'lost') {\n  upload_status = 'dropped_no_match_try_match';\n} else if (lead_id || hasIdent) {\n  upload_status = 'queued_retry';\n} else {\n  upload_status = 'dropped_no_match_try_match';\n}\n\n// Conversion value\nlet conversion_value = null;\nif (event === 'won' && prev.amount != null) conversion_value = prev.amount;\nelse if (event === 'created') conversion_value = 200.00;\n\n// Conversion date_time: closedate (won) / createdate (created)\nlet conv_dt = null;\nif (event === 'won') conv_dt = prev.closedate || new Date().toISOString();\nelse if (event === 'created') conv_dt = prev.createdate || new Date().toISOString();\nelse conv_dt = new Date().toISOString();\n\n// identificadores para el uploader (Fase B los lee de api_request.identifiers)\nconst api_request = hasIdent\n  ? JSON.stringify({ identifiers: { email_hash, phone_hash } })\n  : null;\n\nreturn [{\n  json: {\n    hs_deal_id: prev.hs_deal_id,\n    hs_deal_event: event,\n    hs_pipeline: prev.hs_pipeline,\n    hs_dealstage: prev.hs_dealstage,\n    hs_lead_source: prev.hs_lead_source,\n    google_ads_customer_id: customer_id,\n    google_ads_conversion_action_id: conv_action_id,\n    google_ads_conversion_action_name: conv_action_name,\n    location_id: location_id,\n    matched_lead_id: lead_id,\n    match_method: match_method,\n    attribution_age_hours: input.age_hours ? Math.round(input.age_hours) : null,\n    conversion_value: conversion_value,\n    currency: 'USD',\n    conversion_date_time: conv_dt,\n    upload_status: upload_status,\n    api_request: api_request,\n    api_response: null,\n    error_message: null,\n    raw_payload: prev.raw_payload\n  }\n}];"
+            },
+            "id": "f1000000-0000-0000-0000-000000000004",
+            "name": "Build log row",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                912,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO conversion_upload_log (\n  hs_deal_id, hs_deal_event, hs_pipeline, hs_dealstage, hs_lead_source,\n  google_ads_customer_id, google_ads_conversion_action_id, google_ads_conversion_action_name,\n  location_id, matched_lead_id, match_method, attribution_age_hours,\n  conversion_value, currency, conversion_date_time,\n  upload_status, api_request, api_response, error_message\n) VALUES (\n  $1, $2, $3, $4, $5,\n  $6, $7, $8,\n  $9, $10, $11, $12,\n  $13, $14, $15::timestamptz,\n  $16, $17::jsonb, $18::jsonb, $19\n)\nRETURNING id, created_at;",
+                "options": {
+                    "queryReplacement": "={{ [$json.hs_deal_id, $json.hs_deal_event, $json.hs_pipeline, $json.hs_dealstage, $json.hs_lead_source, $json.google_ads_customer_id, $json.google_ads_conversion_action_id, $json.google_ads_conversion_action_name, $json.location_id, $json.matched_lead_id, $json.match_method, $json.attribution_age_hours, $json.conversion_value, $json.currency, $json.conversion_date_time, $json.upload_status, $json.api_request, $json.api_response, $json.error_message] }}"
+                }
+            },
+            "id": "f1000000-0000-0000-0000-000000000005",
+            "name": "Insert conversion_upload_log",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                1120,
+                304
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "QmJNeoZtiE1QSSfp",
+                    "name": "Supabase MSD (Transaction Pooler)"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ { ok: true, log_id: ($json.id || null), created_at: ($json.created_at || null), match_method: $('Build log row').first().json.match_method, upload_status: $('Build log row').first().json.upload_status } }}",
+                "options": {}
+            },
+            "id": "f1000000-0000-0000-0000-000000000006",
+            "name": "Respond OK",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                1344,
+                304
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Validate + Normalize",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Validate + Normalize": {
+            "main": [
+                [
+                    {
+                        "node": "Lookup attribution + location",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Lookup attribution + location": {
+            "main": [
+                [
+                    {
+                        "node": "Build log row",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build log row": {
+            "main": [
+                [
+                    {
+                        "node": "Insert conversion_upload_log",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Insert conversion_upload_log": {
+            "main": [
+                [
+                    {
+                        "node": "Respond OK",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "instanceId": "5cea1ede4b61531b540ce8505b7872e7b96f60c12ca0442cc9217aae6d18d4b2"
+    }
+}

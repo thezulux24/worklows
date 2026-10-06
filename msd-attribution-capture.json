@@ -1,0 +1,114 @@
+{
+    "name": "MSD - Attribution Capture",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "attribution-capture",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "wh1",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                240,
+                304
+            ],
+            "webhookId": "attribution-capture-webhook"
+        },
+        {
+            "parameters": {
+                "jsCode": "\n// MSD Attribution Capture — Validate + Normalize + Hash\nconst crypto = require('crypto');\n\nconst expectedSecret = '9263794e1e4b3b7183395e490a7732b4653e8f501d760ac67e5ac57760546c01';\nlet body = $input.first().json.body || $input.first().json;\n\n// GTM envía con fetch mode:'no-cors', que fuerza Content-Type text/plain:\n// n8n no parsea el JSON y el body llega como string crudo\nif (typeof body === 'string') {\n  try { body = JSON.parse(body); } catch (e) { throw new Error('Invalid JSON body'); }\n}\n\n// Secret en body (porque GTM no-cors no permite custom headers)\nif (body._secret !== expectedSecret) {\n  throw new Error('Invalid secret');\n}\n\nconst normalizeEmail = (e) => (e || '').toLowerCase().trim();\nconst normalizePhone = (p) => (p || '').replace(/[^0-9+]/g, '');\nconst sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');\n\nconst email = normalizeEmail(body.email);\nconst phone = normalizePhone(body.phone);\n\nif (!email && !phone) {\n  throw new Error('Need email or phone for matching');\n}\n\nconst click_ids = body.click_ids || {};\nconst ga4 = body.ga4 || {};\nconst utm = body.utm || {};\nconst page = body.page || {};\n\nreturn [{\n  json: {\n    email_hash: email ? sha256(email) : null,\n    phone_hash: phone ? sha256(phone) : null,\n    gclid: click_ids.gclid || null,\n    gbraid: click_ids.gbraid || null,\n    wbraid: click_ids.wbraid || null,\n    fbclid: click_ids.fbclid || null,\n    msclkid: click_ids.msclkid || null,\n    ttclid: click_ids.ttclid || null,\n    ga4_client_id: ga4.client_id || null,\n    ga4_session_id: ga4.session_id || null,\n    utm_source: utm.source || null,\n    utm_medium: utm.medium || null,\n    utm_campaign: utm.campaign || null,\n    utm_content: utm.content || null,\n    utm_term: utm.term || null,\n    landing_page_url: page.landing_url || null,\n    current_page_url: page.current_url || null,\n    referrer: page.referrer || null,\n    user_agent: page.user_agent || null,\n    hs_form_id: body.hs_form_id || null,\n    hs_submission_guid: body.hs_submission_guid || null,\n    hs_portal_id: body.hs_portal_id || '24089924',\n    location_hint: body.location_hint || null,\n    raw_payload: JSON.stringify(body)\n  }\n}];\n"
+            },
+            "id": "code1",
+            "name": "Validate + Hash",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                464,
+                304
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO lead_attribution (\n  email_hash, phone_hash,\n  gclid, gbraid, wbraid, fbclid, msclkid, ttclid,\n  ga4_client_id, ga4_session_id,\n  utm_source, utm_medium, utm_campaign, utm_content, utm_term,\n  landing_page_url, current_page_url, referrer, user_agent,\n  hs_form_id, hs_submission_guid, hs_portal_id, location_hint,\n  raw_payload\n) VALUES (\n  $1, $2,\n  $3, $4, $5, $6, $7, $8,\n  $9, $10,\n  $11, $12, $13, $14, $15,\n  $16, $17, $18, $19,\n  $20, $21, $22, $23,\n  $24::jsonb\n)\nON CONFLICT (hs_submission_guid) DO NOTHING\nRETURNING id, created_at",
+                "options": {
+                    "queryReplacement": "={{ [$json.email_hash, $json.phone_hash, $json.gclid, $json.gbraid, $json.wbraid, $json.fbclid, $json.msclkid, $json.ttclid, $json.ga4_client_id, $json.ga4_session_id, $json.utm_source, $json.utm_medium, $json.utm_campaign, $json.utm_content, $json.utm_term, $json.landing_page_url, $json.current_page_url, $json.referrer, $json.user_agent, $json.hs_form_id, $json.hs_submission_guid, $json.hs_portal_id, $json.location_hint, $json.raw_payload] }}"
+                }
+            },
+            "id": "pg1",
+            "name": "Postgres Insert",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.4,
+            "position": [
+                688,
+                304
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "QmJNeoZtiE1QSSfp",
+                    "name": "Supabase MSD (Transaction Pooler)"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ {ok: true, lead_id: ($json.id || null), created_at: ($json.created_at || null)} }}",
+                "options": {}
+            },
+            "id": "resp1",
+            "name": "Respond OK",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                912,
+                304
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Validate + Hash",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Validate + Hash": {
+            "main": [
+                [
+                    {
+                        "node": "Postgres Insert",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Postgres Insert": {
+            "main": [
+                [
+                    {
+                        "node": "Respond OK",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "aiBuilderAssisted": true,
+        "builderVariant": "mcp",
+        "instanceId": "5cea1ede4b61531b540ce8505b7872e7b96f60c12ca0442cc9217aae6d18d4b2"
+    }
+}

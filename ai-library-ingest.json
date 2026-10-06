@@ -1,0 +1,556 @@
+{
+    "name": "AI Library - Roam Ingest",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "roam-ingest",
+                "responseMode": "responseNode",
+                "options": {
+                    "rawBody": true
+                }
+            },
+            "id": "3d87595a-04d4-4d7d-8639-d5eeedb55329",
+            "name": "Roam Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2.1,
+            "position": [
+                240,
+                432
+            ],
+            "webhookId": "79966649-634b-4b89-8971-d1440cf445f5"
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": {
+                    "ok": true
+                },
+                "options": {}
+            },
+            "id": "0a748e01-4a5e-44af-85ae-2c9406e61cc0",
+            "name": "Respond OK",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.5,
+            "position": [
+                560,
+                224
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "fnIg37MSJjgeoH3c"
+                },
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "key",
+                            "keyValue": "roam_signing_secret"
+                        }
+                    ]
+                },
+                "limit": 1
+            },
+            "id": "26ab788f-35a5-4c6d-ae0e-c7bff305c8e7",
+            "name": "Fetch Signing Secret",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                560,
+                560
+            ],
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.value }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            },
+                            "rightValue": ""
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "a361a520-b101-45fd-9d4b-7edafdb4235a",
+            "name": "Secret Configured?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                864,
+                560
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const crypto = require('crypto');\nconst webhookItem = $('Roam Webhook').first();\nconst headers = (webhookItem.json && webhookItem.json.headers) || {};\nconst rawBodyBase64 = webhookItem.binary && webhookItem.binary.data && webhookItem.binary.data.data;\nconst rawBody = rawBodyBase64 ? Buffer.from(rawBodyBase64, 'base64').toString('utf8') : '';\n\nconst secretRow = $json;\nconst rawSecret = secretRow.value || '';\nconst secretB64 = rawSecret.indexOf('whsec_') === 0 ? rawSecret.slice(6) : rawSecret;\nconst keyBuffer = Buffer.from(secretB64, 'base64');\n\nconst webhookId = headers['webhook-id'] || '';\nconst webhookTimestamp = headers['webhook-timestamp'] || '';\nconst webhookSignatureHeader = headers['webhook-signature'] || '';\n\nconst signedContent = webhookId + '.' + webhookTimestamp + '.' + rawBody;\nconst expectedSig = crypto.createHmac('sha256', keyBuffer).update(signedContent, 'utf8').digest('base64');\n\nconst providedEntries = webhookSignatureHeader.split(' ').map(function (s) { return s.trim(); }).filter(Boolean);\nlet signatureValid = false;\nfor (let i = 0; i < providedEntries.length; i++) {\n  const parts = providedEntries[i].split(',');\n  if (parts.length === 2 && parts[0] === 'v1') {\n    const provided = parts[1];\n    try {\n      const providedBuf = Buffer.from(provided);\n      const expectedBuf = Buffer.from(expectedSig);\n      if (providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf)) {\n        signatureValid = true;\n        break;\n      }\n    } catch (e) {}\n  }\n}\n\nlet parsedBody = {};\ntry { parsedBody = JSON.parse(rawBody); } catch (e) { parsedBody = {}; }\nconst data = parsedBody.data || {};\nconst sender = data.sender || {};\n\nconst rawTs = data.timestamp;\nconst tsLooksIso = typeof rawTs === 'string' && /^\\d{4}-/.test(rawTs);\nconst normalizedTs = (rawTs === undefined || rawTs === null || rawTs === '')\n  ? ''\n  : (tsLooksIso ? rawTs : new Date(Number(rawTs) / 1000).toISOString());\n\nreturn [{\n  json: {\n    signatureValid: signatureValid,\n    webhookId: webhookId,\n    chatId: data.chatId || '',\n    version: data.version,\n    contentType: data.contentType || '',\n    userType: data.userType || '',\n    autor: sender.name || data.userId || '',\n    texto: data.text || '',\n    ts: normalizedTs\n  }\n}];"
+            },
+            "id": "218c6941-2b83-4a2d-a1ff-160e37c46e1e",
+            "name": "Verify Signature",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1168,
+                464
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.signatureValid }}",
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "equals"
+                            },
+                            "rightValue": true
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "e4ca8fa7-ec68-40af-9043-162eee6c5d66",
+            "name": "Signature Valid?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                1472,
+                464
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.chatId }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "d8a9ea80-c498-4945-bafe-c365fb0466c7"
+                        },
+                        {
+                            "leftValue": "={{ $json.version }}",
+                            "operator": {
+                                "type": "number",
+                                "operation": "equals"
+                            },
+                            "rightValue": 1
+                        },
+                        {
+                            "leftValue": "={{ $json.contentType }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEquals"
+                            },
+                            "rightValue": "deleted"
+                        },
+                        {
+                            "leftValue": "={{ $json.userType }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            },
+                            "rightValue": "user"
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "88e1bbc3-0fb4-4984-b729-a6b0d473916d",
+            "name": "Passes Filters?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                1760,
+                352
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv"
+                },
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "webhook_id",
+                            "keyValue": "={{ $json.webhookId }}"
+                        }
+                    ]
+                },
+                "limit": 1
+            },
+            "id": "68ddff4e-14a7-443b-adf6-39c71b71af62",
+            "name": "Check Duplicate",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                2064,
+                352
+            ],
+            "alwaysOutputData": true
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "loose",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.id }}",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            },
+                            "rightValue": ""
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "460d799f-70c8-46fe-8d85-35fbb6109255",
+            "name": "Row Exists?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                2368,
+                352
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const source = $('Verify Signature').first().json;\nconst text = source.texto || '';\nconst regex = /https?:\\/\\/[^\\s<>\"')\\]]+/g;\nconst rawMatches = text.match(regex) || [];\nconst cleaned = rawMatches.map(function (u) { return u.replace(/[.,;:!?]+$/, ''); });\nconst uniqueLinks = Array.from(new Set(cleaned));\n\nreturn [{\n  json: {\n    webhookId: source.webhookId,\n    chatId: source.chatId,\n    autor: source.autor,\n    texto: source.texto,\n    ts: source.ts,\n    links: uniqueLinks\n  }\n}];"
+            },
+            "id": "b367627c-baa2-4f3c-aa47-bca473084edc",
+            "name": "Extract Links",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2672,
+                464
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.links }}",
+                            "operator": {
+                                "type": "array",
+                                "operation": "notEmpty"
+                            },
+                            "rightValue": []
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "4dbeda9f-b2bb-4770-8381-050ded50e8ae",
+            "name": "Has Links?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.3,
+            "position": [
+                2960,
+                464
+            ]
+        },
+        {
+            "parameters": {
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "sAM4ZqvSEJcEblJv"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "webhook_id": "={{ $json.webhookId }}",
+                        "chat_id": "={{ $json.chatId }}",
+                        "autor": "={{ $json.autor }}",
+                        "texto": "={{ $json.texto }}",
+                        "links": "={{ JSON.stringify($json.links) }}",
+                        "ts": "={{ $json.ts }}",
+                        "estado": "pending",
+                        "error": "",
+                        "intento": 0,
+                        "updated_at": "={{ $now.toUTC().toISO() }}"
+                    },
+                    "schema": [
+                        {
+                            "id": "webhook_id",
+                            "displayName": "webhook_id",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "chat_id",
+                            "displayName": "chat_id",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "autor",
+                            "displayName": "autor",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "texto",
+                            "displayName": "texto",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "links",
+                            "displayName": "links",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "ts",
+                            "displayName": "ts",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "estado",
+                            "displayName": "estado",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "error",
+                            "displayName": "error",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "intento",
+                            "displayName": "intento",
+                            "type": "number",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "updated_at",
+                            "displayName": "updated_at",
+                            "type": "string",
+                            "display": true,
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "89952459-9330-4470-8b29-ac43f590f673",
+            "name": "Insert Queue Row",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1.1,
+            "position": [
+                3264,
+                464
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const item = $input.first();\nconsole.log('[ai-library-ingest] invalid signature, dropping', item.json.webhookId);\nreturn $input.all();"
+            },
+            "id": "6ce04263-ef0f-4d78-a8ab-203a0939a713",
+            "name": "Log Invalid Signature",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1760,
+                640
+            ]
+        }
+    ],
+    "connections": {
+        "Roam Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Respond OK",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Fetch Signing Secret",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Signing Secret": {
+            "main": [
+                [
+                    {
+                        "node": "Secret Configured?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Secret Configured?": {
+            "main": [
+                [
+                    {
+                        "node": "Verify Signature",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Verify Signature": {
+            "main": [
+                [
+                    {
+                        "node": "Signature Valid?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Signature Valid?": {
+            "main": [
+                [
+                    {
+                        "node": "Passes Filters?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Log Invalid Signature",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Passes Filters?": {
+            "main": [
+                [
+                    {
+                        "node": "Check Duplicate",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Duplicate": {
+            "main": [
+                [
+                    {
+                        "node": "Row Exists?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Row Exists?": {
+            "main": [
+                [],
+                [
+                    {
+                        "node": "Extract Links",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Links": {
+            "main": [
+                [
+                    {
+                        "node": "Has Links?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Links?": {
+            "main": [
+                [
+                    {
+                        "node": "Insert Queue Row",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "aiBuilderAssisted": true,
+        "builderVariant": "mcp",
+        "instanceId": "5cea1ede4b61531b540ce8505b7872e7b96f60c12ca0442cc9217aae6d18d4b2"
+    }
+}
